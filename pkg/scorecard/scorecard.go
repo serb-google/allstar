@@ -28,6 +28,8 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	plumbingclient "github.com/go-git/go-git/v5/plumbing/transport/client"
+	plumbinghttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/ossf/scorecard/v5/clients"
 	"github.com/ossf/scorecard/v5/clients/githubrepo"
 	"github.com/ossf/scorecard/v5/clients/localdir"
@@ -69,7 +71,7 @@ func Get(ctx context.Context, fullRepo string, local bool, tr http.RoundTripper)
 		if scc, ok := scClientsLocal[fullRepo]; ok {
 			return scc, nil
 		}
-		scc, err := createLocal(ctx, fullRepo)
+		scc, err := createLocal(fullRepo, tr)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +131,7 @@ func (scc ScClient) FetchBranches() ([]string, error) {
 
 // Checkout a repo into a local directory
 // returns the path to the local repo and a git repo reference
-func checkoutRepo(fullRepo string) (string, *git.Repository, error) {
+func checkoutRepo(fullRepo string, tr http.RoundTripper) (string, *git.Repository, error) {
 	log.Info().
 		Str("repo", fullRepo).
 		Msg("Repo checkout")
@@ -138,6 +140,13 @@ func checkoutRepo(fullRepo string) (string, *git.Repository, error) {
 	if err != nil {
 		return "", nil, err
 	}
+
+	// configure go-git plumbing client
+	// based on github.com/go-git/go-git/v5/plumbing/transport/client
+	customClient := &http.Client{
+		Transport: tr,
+	}
+	plumbingclient.InstallProtocol("https", plumbinghttp.NewClient(customClient))
 
 	// checkout to the temp dir
 	repo, err := git.PlainClone(dir, false, &git.CloneOptions{
@@ -169,8 +178,8 @@ func Close(fullRepo string) {
 	}
 }
 
-func createLocal(ctx context.Context, fullRepo string) (*ScClient, error) {
-	localPath, gitRepo, err := checkoutRepo(fullRepo)
+func createLocal(fullRepo string, tr http.RoundTripper) (*ScClient, error) {
+	localPath, gitRepo, err := checkoutRepo(fullRepo, tr)
 	if err != nil {
 		return nil, err
 	}
